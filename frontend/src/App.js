@@ -4,167 +4,265 @@ function App() {
 
   const [page, setPage] = useState("login");
   const [requests, setRequests] = useState([]);
+  const [selectedSection, setSelectedSection] = useState("");
 
-  // ✅ AUTO LOAD when dashboard opens
+  const [studentName, setStudentName] = useState("");
+  const [studentSection, setStudentSection] = useState("");
+
+  const periodTimes = {
+    1: "9:10", 2: "10:10", 3: "11:10", 4: "12:10",
+    5: "1:00", 6: "2:00", 7: "3:00", 8: "4:00"
+  };
+
+  // 🔥 AUTO REMOVE EXPIRED
   useEffect(() => {
-    if (page === "dashboard") {
-      loadRequests();
-    }
+    const interval = setInterval(() => {
+      setRequests(prev =>
+        prev.filter(r => {
+          if (r.expiryTime) {
+            return new Date(r.expiryTime) > new Date();
+          }
+          return true;
+        })
+      );
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (page === "dashboard") loadRequests();
   }, [page]);
 
-  const login = async () => {
+  const loadRequests = async () => {
+    const res = await fetch("http://localhost:5000/requests");
+    const data = await res.json();
+    setRequests(data);
+  };
 
+  const login = async () => {
     const pin = document.getElementById("pin").value;
 
     const res = await fetch("http://localhost:5000/prof-login", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pin })
     });
 
     const data = await res.json();
 
-    if (data.status === "success") {
-      setPage("dashboard");  // ❌ removed loadRequests from here
-    } else {
-      alert("Invalid PIN");
+    if (data.status === "success") setPage("dashboard");
+    else alert("Invalid PIN");
+  };
+
+  const handlePinChange = async (e) => {
+    const pin = e.target.value;
+
+    if (pin.length < 10) return;
+
+    const res = await fetch(`http://localhost:5000/student/${pin}`);
+    const data = await res.json();
+
+    if (data.status === "found") {
+      setStudentName(data.name);
+      setStudentSection(data.section);
     }
   };
 
   const sendRequest = async () => {
 
-    const name = document.getElementById("name").value;
     const pin = document.getElementById("studentPin").value;
+    const reason = document.getElementById("reason").value;
+    const fromPeriod = document.getElementById("fromPeriod").value;
+    const toPeriod = document.getElementById("toPeriod").value;
+
+    if (!pin || !reason || !fromPeriod || !toPeriod) {
+      alert("Fill all fields");
+      return;
+    }
 
     await fetch("http://localhost:5000/request", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, pin })
+      body: JSON.stringify({
+        pin,
+        reason,
+        fromPeriod: Number(fromPeriod),
+        toPeriod: Number(toPeriod)
+      })
     });
 
     alert("Request Sent");
+    loadRequests();
   };
 
-  const loadRequests = async () => {
-    const res = await fetch("http://localhost:5000/requests");
-    const data = await res.json();
+  // 🔥 SECTION COUNTS (APPROVED ONLY)
+  const sectionCounts = ["A","B","C","D","E"].map(sec => ({
+    section: sec,
+    count: requests.filter(r => r.section === sec && r.status === "approved").length
+  }));
 
-    setRequests([...data]); // 🔥 ensures re-render
-  };
-
+  // LOGIN PAGE
   if (page === "login") {
     return (
-      <div>
+      <div style={{ padding: "20px" }}>
         <h1>Professor Login</h1>
-        <input id="pin" placeholder="Enter PIN" />
+        <input id="pin" placeholder="PIN" />
         <button onClick={login}>Login</button>
 
         <hr />
 
         <h2>Student Request</h2>
-        <input id="name" placeholder="Student Name" />
-        <input id="studentPin" placeholder="Student PIN" />
-        <button onClick={sendRequest}>Request Permission</button>
-      </div>
-    )
-  }
-if (page === "dashboard") {
-  return (
-    <div style={{
-      backgroundColor: "#f4f6f8",
-      minHeight: "100vh",
-      padding: "20px"
-    }}>
-      
-      <h1 style={{ textAlign: "center", marginBottom: "20px" }}>
-        Professor Dashboard
-      </h1>
 
+        <input id="studentPin" onChange={handlePinChange} placeholder="Roll" />
+        <input value={studentName} placeholder="Name" disabled />
+        <input value={studentSection} placeholder="Section" disabled />
+
+        <input id="reason" placeholder="Reason" />
+
+        <select id="fromPeriod">
+          <option value="">From</option>
+          {Object.keys(periodTimes).map(p => (
+            <option key={p} value={p}>{p} ({periodTimes[p]})</option>
+          ))}
+        </select>
+
+        <select id="toPeriod">
+          <option value="">To</option>
+          {Object.keys(periodTimes).map(p => (
+            <option key={p} value={p}>{p} ({periodTimes[p]})</option>
+          ))}
+        </select>
+
+        <button onClick={sendRequest}>Request</button>
+      </div>
+    );
+  }
+
+  // DASHBOARD
+  return (
+    <div style={{ padding: "20px", background: "#f5f7fa", minHeight: "100vh" }}>
+
+      <h1 style={{ textAlign: "center" }}>📊 Professor Dashboard</h1>
+
+      {/* 🔥 SECTION DASHBOARD */}
+      <div style={{
+        display: "flex",
+        justifyContent: "center",
+        gap: "15px",
+        margin: "20px"
+      }}>
+        {sectionCounts.map(s => (
+          <div
+            key={s.section}
+            onClick={() => setSelectedSection(s.section)}
+            style={{
+              background: "#2563eb",
+              color: "white",
+              padding: "15px",
+              borderRadius: "10px",
+              cursor: "pointer",
+              minWidth: "100px",
+              textAlign: "center"
+            }}
+          >
+            <h3>{s.section}</h3>
+            <p>{s.count} Approved</p>
+          </div>
+        ))}
+        <div onClick={() => setSelectedSection("")}
+          style={{
+            background: "#111",
+            color: "white",
+            padding: "15px",
+            borderRadius: "10px",
+            cursor: "pointer"
+          }}>
+          All
+        </div>
+      </div>
+
+      {/* 🔥 CARDS */}
       <div style={{
         display: "flex",
         flexWrap: "wrap",
-        justifyContent: "center",
-        gap: "20px"
+        gap: "20px",
+        justifyContent: "center"
       }}>
+        {requests
+          .filter(r => r.status !== "rejected")
+          .filter(r => !selectedSection || r.section === selectedSection)
+          .map(r => (
 
-        {requests.map((r) => (
-          <div key={r._id} style={{
-            backgroundColor: "white",
-            padding: "20px",
-            borderRadius: "10px",
-            width: "250px",
-            boxShadow: "0 4px 10px rgba(0,0,0,0.1)"
-          }}>
-
-            <h3 style={{ marginBottom: "10px" }}>{r.name}</h3>
-            <p><b>PIN:</b> {r.pin}</p>
-
-            {/* ✅ Status Badge */}
-            <p style={{
-              marginTop: "10px",
-              padding: "5px 10px",
-              borderRadius: "5px",
-              textAlign: "center",
-              color: "white",
-              backgroundColor:
-                r.status === "approved" ? "green" :
-                r.status === "rejected" ? "red" : "orange"
+            <div key={r._id} style={{
+              background: "white",
+              padding: "15px",
+              borderRadius: "10px",
+              width: "260px",
+              boxShadow: "0 4px 10px rgba(0,0,0,0.1)"
             }}>
-              {r.status.toUpperCase()}
-            </p>
 
-            {/* ✅ Buttons */}
-            {r.status === "pending" && (
-              <div style={{ marginTop: "10px", display: "flex", gap: "10px" }}>
-                
-                <button style={{
-                  flex: 1,
-                  padding: "8px",
-                  backgroundColor: "green",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "5px",
-                  cursor: "pointer"
-                }}
-                onClick={async () => {
-                  await fetch(`http://localhost:5000/approve/${r._id}`, {
-                    method: "PUT"
-                  });
-                  loadRequests();
-                }}>
-                  Approve
-                </button>
+              <h3>{r.name}</h3>
 
-                <button style={{
-                  flex: 1,
-                  padding: "8px",
-                  backgroundColor: "red",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "5px",
-                  cursor: "pointer"
-                }}
-                onClick={async () => {
-                  await fetch(`http://localhost:5000/reject/${r._id}`, {
-                    method: "PUT"
-                  });
-                  loadRequests();
-                }}>
-                  Reject
-                </button>
+              <p><b>Section:</b> {r.section}</p>
+              <p><b>Reason:</b> {r.reason}</p>
 
-              </div>
-            )}
+              {/* PERIOD DISPLAY */}
+              <p>
+                <b>Time:</b> {r.fromPeriod} ({periodTimes[r.fromPeriod]}) → {r.toPeriod} ({periodTimes[r.toPeriod]})
+              </p>
 
-          </div>
-        ))}
+              {/* DATE */}
+              <p>
+                <b>Date:</b> {new Date(r.createdAt).toLocaleDateString()}
+              </p>
 
+              {/* EXPIRY */}
+              {r.expiryTime && (
+                <p>
+                  ⏳ {Math.floor((new Date(r.expiryTime) - new Date()) / 1000)} sec left
+                </p>
+              )}
+
+              {/* STATUS */}
+              <p style={{
+                background:
+                  r.status === "approved" ? "green" :
+                  r.status === "pending" ? "orange" : "red",
+                color: "white",
+                padding: "5px",
+                textAlign: "center",
+                borderRadius: "5px"
+              }}>
+                {r.status.toUpperCase()}
+              </p>
+
+              {/* BUTTONS */}
+              {r.status === "pending" && (
+                <div style={{ display: "flex", gap: "10px" }}>
+                  <button style={{ flex: 1 }}
+                    onClick={async () => {
+                      await fetch(`http://localhost:5000/approve/${r._id}`, { method: "PUT" });
+                      loadRequests();
+                    }}>
+                    Approve
+                  </button>
+
+                  <button style={{ flex: 1, background: "red", color: "white" }}
+                    onClick={async () => {
+                      await fetch(`http://localhost:5000/reject/${r._id}`, { method: "PUT" });
+                      setRequests(prev => prev.filter(req => req._id !== r._id));
+                    }}>
+                    Reject
+                  </button>
+                </div>
+              )}
+
+            </div>
+          ))}
       </div>
     </div>
-  )
+  );
 }
-  }
 
 export default App;
